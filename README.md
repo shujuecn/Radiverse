@@ -2,6 +2,12 @@
 
 Radiverse is a Python tool for loading, processing, and visualizing medical DICOM (Digital Imaging and Communications in Medicine) image data with windowing, conversion to Hounsfield units, and saving capabilities.
 
+## Installation
+
+```python
+pip install radiverse -i https://pypi.org/simple
+```
+
 ## Usage Example
 
 ```python

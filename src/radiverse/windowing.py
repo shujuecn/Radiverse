@@ -6,34 +6,8 @@ from PIL import Image
 import matplotlib.pyplot as plt
 import numpy as np
 import pydicom
-from numba import njit
 from pydicom.dataset import FileDataset
 from pydicom.dicomdir import DicomDir
-
-
-@njit
-def apply_windowing(image: np.ndarray, min_val: float, max_val: float) -> np.ndarray:
-    """
-    Apply windowing to the image.
-
-    Parameters
-    ----------
-    image (np.ndarray)
-        The image to apply windowing.
-    min_val (float)
-        Minimum value for windowing.
-    max_val (float)
-        Maximum value for windowing.
-
-    Returns
-    -------
-    np.ndarray
-        The windowed image.
-    """
-    windowed_image = np.clip(
-        (image - min_val) / (max_val - min_val + 1e-8) * 255, 0, 255
-    ).astype(np.uint8)
-    return windowed_image
 
 
 class Dicom:
@@ -49,6 +23,7 @@ class Dicom:
         self.data: List[Union[FileDataset, DicomDir]] = self._load_data(path)
         self.pixel_data: np.ndarray = self._get_pixel_data()
         self.hu_images: np.ndarray = self._get_hu_images()
+        self.hu_images_original: np.ndarray = self.hu_images.copy()
 
         print(self)
 
@@ -140,7 +115,12 @@ class Dicom:
         """
         min_val = (2 * center - width) / 2.0 + 0.5
         max_val = (2 * center + width) / 2.0 + 0.5
-        self.hu_images = apply_windowing(self.hu_images, min_val, max_val)
+
+        self.hu_images = np.clip(
+            a=(self.hu_images_original - min_val) / (max_val - min_val + 1e-8) * 255,
+            a_min=0,
+            a_max=255,
+        ).astype(np.uint8)
 
     def show(self, index: int, mode: str = "original") -> None:
         """
@@ -153,15 +133,15 @@ class Dicom:
         mode (str)
             Display mode. Can be "original", "hu", or "both".
         """
-        if mode == "original" or mode == "o":
+        if mode in ["original", "o"]:
             plt.imshow(self.pixel_data[index], cmap="gray")
             plt.title(f"Original-{index}")
             plt.axis("off")
-        elif mode == "hu" or mode == "h":
+        elif mode in ["hu", "h"]:
             plt.imshow(self.hu_images[index], cmap="gray")
             plt.title(f"Hounsfield Units-{index}")
             plt.axis("off")
-        elif mode == "both" or mode == "oh":
+        elif mode in ["both", "oh"]:
             fig, axes = plt.subplots(1, 2)
             axes[0].imshow(self.pixel_data[index], cmap="gray")
             axes[0].set_title(f"Original-{index}")
@@ -170,7 +150,7 @@ class Dicom:
             axes[1].set_title(f"Hounsfield Units-{index}")
             axes[1].axis("off")
         else:
-            raise ValueError("Invalid mode. Expected 'original', 'hu', or 'both'.")
+            raise ValueError("Invalid mode. Expected 'o', 'h', or 'oh'.")
 
         # fig.patch.set_facecolor("black")
         plt.tight_layout()
