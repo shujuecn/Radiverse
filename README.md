@@ -34,7 +34,7 @@ RescaleIntercept: -1024
 RescaleSlope: 1
 ```
 
-## Apply windowing
+### Apply windowing
 
 Common (window width, window center) examples:
 
@@ -47,16 +47,16 @@ Common (window width, window center) examples:
 dcm.set_window(400, 60)
 ```
 
-## Display
+### Display
 
-### Original image
+* Original image
 ```python
 dcm.show(9, cmap="o")
 ```
 
 ![](./img/original.png)
 
-### HU image
+* HU image
 
 ```python
 dcm.show(9, cmap="h")
@@ -64,14 +64,15 @@ dcm.show(9, cmap="h")
 
 ![](./img/hu.png)
 
-### Both original and HU images
+* Both original and HU images
+
 ```python
 dcm.show(9, cmap="oh")
 ```
 
 ![](./img/both.png)
 
-## Save HU images
+### Save HU images
 
 * Save single HU image
 
