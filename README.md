@@ -4,14 +4,14 @@ Radiverse is a Python tool for loading, processing, and visualizing medical DICO
 
 ## Installation
 
-```python
+```bash
 pip install radiverse -i https://pypi.org/simple
 ```
 
 ## Usage Example
 
 ```python
-from radiverse.utils import Dicom
+from radiverse.windowing import Dicom
 ```
 
 ### Load DICOM files
