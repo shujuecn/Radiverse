@@ -54,8 +54,7 @@ dcm.set_window(400, 60)
 dcm.show(9, cmap="o")
 ```
 
-<img src="./img/original.png"  style="zoom: 40%;" />
-
+![](./img/original.png)
 
 ### HU image
 
@@ -63,13 +62,14 @@ dcm.show(9, cmap="o")
 dcm.show(9, cmap="h")
 ```
 
-<img src="./img/hu.png"  style="zoom: 40%;" />
+![](./img/hu.png)
 
 ### Both original and HU images
 ```python
 dcm.show(9, cmap="oh")
 ```
-<img src="./img/both.png"  style="zoom: 50%;" />
+
+![](./img/both.png)
 
 ## Save HU images
 
