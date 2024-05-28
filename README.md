@@ -1,6 +1,6 @@
 # Radiverse
 
-This project provides a tool for processing DICOM (Digital Imaging and Communications in Medicine) files, including loading DICOM files, converting pixel values to Hounsfield Units (HU), applying windowing, and displaying DICOM images.
+Radiverse is a Python tool for loading, processing, and visualizing medical DICOM (Digital Imaging and Communications in Medicine) image data with windowing, conversion to Hounsfield units, and saving capabilities.
 
 ## Usage Example
 
@@ -20,18 +20,18 @@ dcm = Dicom("ct_files")
 
 output:
 ```
-PatientName:	Anonymous
-PatientID:	20240527-224912
-PatientSex:	M
-StudyID:	1706
-Rows:	512
-Columns:	512
-SliceThickness:	1.250000
-PixelSpacing:	[0.703125, 0.703125]
-WindowCenter:	60
-WindowWidth:	350
-RescaleIntercept:	-1024
-RescaleSlope:	1
+PatientName: Anonymous
+PatientID: 20240527-224912
+PatientSex: M
+StudyID: 1706
+Rows: 512
+Columns: 512
+SliceThickness: 1.250000
+PixelSpacing: [0.703125, 0.703125]
+WindowCenter: 60
+WindowWidth: 350
+RescaleIntercept: -1024
+RescaleSlope: 1
 ```
 
 ## Apply windowing
@@ -44,33 +44,46 @@ Common (window width, window center) examples:
 * Bone: (1500, 300)
 
 ```python
-dcm.setDicomWinWidthWinCenter(400, 60)
+dcm.set_window(400, 60)
 ```
 
 ## Display
 
 ### Original image
 ```python
-dcm.show(0, cmap="o")
+dcm.show(9, cmap="o")
 ```
 
-![](https://p.ipic.vip/npjdkn.png)
+<img src="./img/original.png"  style="zoom: 40%;" />
 
 
 ### HU image
 
 ```python
-dcm.show(0, cmap="h")
+dcm.show(9, cmap="h")
 ```
 
-![](https://p.ipic.vip/e2uu4d.png)
+<img src="./img/hu.png"  style="zoom: 40%;" />
 
 ### Both original and HU images
 ```python
-dcm.show(0, cmap="oh")
+dcm.show(9, cmap="oh")
+```
+<img src="./img/both.png"  style="zoom: 50%;" />
+
+## Save HU images
+
+* Save single HU image
+
+```python
+dcm.save_hu_image(index=0, save_path="output")
 ```
 
-![](https://p.ipic.vip/vhsyf1.png)
+* Save all HU images
+
+```python
+dcm.save_all_hu_images(save_path="output")
+```
 
 ## Acknowledgments
 

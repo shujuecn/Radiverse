@@ -1,42 +1,39 @@
 import os
 from glob import glob
+from typing import List, Union
 
+from PIL import Image
 import matplotlib.pyplot as plt
 import numpy as np
 import pydicom
-from numba import jit
+from numba import njit
 from pydicom.dataset import FileDataset
 from pydicom.dicomdir import DicomDir
 
 
-@jit(nopython=True)
-def apply_windowing(
-    image: np.ndarray, rows: int, cols: int, minval: float, maxval: float
-):
+@njit
+def apply_windowing(image: np.ndarray, min_val: float, max_val: float) -> np.ndarray:
     """
     Apply windowing to the image.
 
     Parameters
     ----------
     image (np.ndarray)
-    * The image to apply windowing.
+        The image to apply windowing.
+    min_val (float)
+        Minimum value for windowing.
+    max_val (float)
+        Maximum value for windowing.
 
-    rows (int)
-    * Number of rows in the image.
-
-    cols (int)
-    * Number of columns in the image.
-
-    minval (float)
-    * Minimum value for windowing.
-
-    maxval (float)
-    * Maximum value for windowing.
+    Returns
+    -------
+    np.ndarray
+        The windowed image.
     """
-    for i in np.arange(rows):
-        for j in np.arange(cols):
-            result = maxval - minval if maxval - minval != 0 else 1
-            image[i, j] = int((image[i, j] - minval) / result * 255)
+    windowed_image = np.clip(
+        (image - min_val) / (max_val - min_val + 1e-8) * 255, 0, 255
+    ).astype(np.uint8)
+    return windowed_image
 
 
 class Dicom:
@@ -47,70 +44,171 @@ class Dicom:
         Parameters
         ----------
         path (str)
-        * Path to the DICOM file or directory.
+            Path to the DICOM file or directory.
         """
-        self.data: list[FileDataset | DicomDir] = self.load(path)
-        self.hu_images: np.ndarray
+        self.data: List[Union[FileDataset, DicomDir]] = self._load_data(path)
+        self.pixel_data: np.ndarray = self._get_pixel_data()
+        self.hu_images: np.ndarray = self._get_hu_images()
 
         print(self)
 
     @staticmethod
-    def load(path: str) -> list[FileDataset | DicomDir]:
+    def _load_data(path: str) -> List[Union[FileDataset, DicomDir]]:
         """
         Load DICOM files from the given path.
 
         Parameters
         ----------
         path (str)
-        * Path to the DICOM file or directory.
+            Path to the DICOM file or directory.
 
         Returns
         ----------
-        list
-        * List of DICOM datasets.
+        List[Union[FileDataset, DicomDir]]
+            List of DICOM datasets.
         """
-        dcm = []
-
         if os.path.isfile(path):
             try:
-                dcm.append(pydicom.dcmread(path))
+                return [pydicom.dcmread(path)]
             except pydicom.errors.InvalidDicomError as e:
                 raise RuntimeError(f"Error reading DICOM file: {path}. Error: {e}")
 
         elif os.path.isdir(path):
             try:
-                dcm_files: list[str] = glob(os.path.join(path, "*.dcm"))
-                dcm: list[FileDataset | DicomDir] = [
+                dcm_files: List[str] = glob(os.path.join(path, "*.dcm"))
+                dcm_data: List[Union[FileDataset, DicomDir]] = [
                     pydicom.dcmread(s) for s in dcm_files
                 ]
-                dcm.sort(key=lambda x: float(x.ImagePositionPatient[2]), reverse=True)
+                dcm_data.sort(
+                    key=lambda x: float(x.ImagePositionPatient[2]), reverse=True
+                )
+                return dcm_data
             except (TypeError, pydicom.errors.InvalidDicomError) as e:
                 raise RuntimeError(
                     f"Error reading DICOM files in directory: {path}. Error: {e}"
                 )
 
-        else:
-            raise ValueError(
-                f"The provided path '{path}' is neither a file nor a directory."
-            )
+        raise ValueError(
+            f"The provided path '{path}' is neither a file nor a directory."
+        )
 
-        return dcm
-
-    def __getitem__(self, index: int):
+    def _get_pixel_data(self) -> np.ndarray:
         """
-        Get the pixel array of the DICOM file at the specified index.
-
-        Parameters
-        ----------
-        index (int)
-        * Index of the DICOM file.
+        Get the pixel data from the DICOM files.
 
         Returns
         ----------
         np.ndarray
-        * Pixel array of the DICOM file.
+            3D array of pixel data.
         """
-        return self.data[index].pixel_array
+        return np.stack([s.pixel_array for s in self.data])
+
+    def _get_hu_images(self) -> np.ndarray:
+        """
+        Convert the pixel values to Hounsfield Units (HU).
+
+        Returns
+        ----------
+        np.ndarray
+            3D array of pixel values in HU.
+        """
+        images: np.ndarray = self.pixel_data.astype(np.int16)
+        images[images == -2048] = 0
+
+        for index, item in enumerate(self.data):
+            intercept = item.RescaleIntercept
+            slope = item.RescaleSlope
+
+            if slope != 1:
+                images[index] = slope * images[index].astype(np.float64)
+            images[index] += np.int16(intercept)
+
+        return images
+
+    def set_window(self, width: float = 350, center: float = 60) -> None:
+        """
+        Set the window width and window center for the DICOM images.
+
+        Parameters
+        ----------
+        width (float)
+            Window width.
+            Lung: 1500; Head: 80; Mediastinum: 400; Bone: 1500
+        center (float)
+            Window center.
+            Lung: -400; Head: 40; Mediastinum: 60; Bone: 300
+        """
+        min_val = (2 * center - width) / 2.0 + 0.5
+        max_val = (2 * center + width) / 2.0 + 0.5
+        self.hu_images = apply_windowing(self.hu_images, min_val, max_val)
+
+    def show(self, index: int, mode: str = "original") -> None:
+        """
+        Show the DICOM image at the specified index.
+
+        Parameters
+        ----------
+        index (int)
+            Index of the DICOM image.
+        mode (str)
+            Display mode. Can be "original", "hu", or "both".
+        """
+        if mode == "original" or mode == "o":
+            plt.imshow(self.pixel_data[index], cmap="gray")
+            plt.title(f"Original-{index}")
+            plt.axis("off")
+        elif mode == "hu" or mode == "h":
+            plt.imshow(self.hu_images[index], cmap="gray")
+            plt.title(f"Hounsfield Units-{index}")
+            plt.axis("off")
+        elif mode == "both" or mode == "oh":
+            fig, axes = plt.subplots(1, 2)
+            axes[0].imshow(self.pixel_data[index], cmap="gray")
+            axes[0].set_title(f"Original-{index}")
+            axes[0].axis("off")
+            axes[1].imshow(self.hu_images[index], cmap="gray")
+            axes[1].set_title(f"Hounsfield Units-{index}")
+            axes[1].axis("off")
+        else:
+            raise ValueError("Invalid mode. Expected 'original', 'hu', or 'both'.")
+
+        # fig.patch.set_facecolor("black")
+        plt.tight_layout()
+        plt.axis("off")
+        plt.show()
+
+    def save_hu_image(self, index: int, save_path: str) -> None:
+        """
+        Save the HU image at the specified index to the given path.
+
+        Parameters
+        ----------
+        index (int)
+            Index of the DICOM image.
+        save_path (str)
+            Path to save the HU image.
+        """
+        os.makedirs(save_path, exist_ok=True)
+
+        image = Image.fromarray(self.hu_images[index])
+        filename = os.path.join(save_path, f"{index}_hu.png")
+        image.save(filename)
+
+    def save_all_hu_images(self, save_path: str) -> None:
+        """
+        Save all HU images to the given path.
+
+        Parameters
+        ----------
+        save_path (str)
+            Path to save the HU images.
+        """
+        os.makedirs(save_path, exist_ok=True)
+
+        for i, image in enumerate(self.hu_images):
+            filename = os.path.join(save_path, f"{i}_hu.png")
+            img = Image.fromarray(image)
+            img.save(filename)
 
     def __str__(self) -> str:
         """
@@ -122,110 +220,32 @@ class Dicom:
         """
         d = self.data[0]
         return (
-            f"PatientName:\t{d.PatientName}\n"
-            f"PatientID:\t{d.PatientID}\n"
-            f"PatientSex:\t{d.PatientSex}\n"
-            f"StudyID:\t{d.StudyID}\n"
-            f"Rows:\t{d.Rows}\n"
-            f"Columns:\t{d.Columns}\n"
-            f"SliceThickness:\t{d.SliceThickness}\n"
-            f"PixelSpacing:\t{d.PixelSpacing}\n"
-            f"WindowCenter:\t{d.WindowCenter}\n"
-            f"WindowWidth:\t{d.WindowWidth}\n"
-            f"RescaleIntercept:\t{d.RescaleIntercept}\n"
-            f"RescaleSlope:\t{d.RescaleSlope}\n"
+            f"PatientName: {d.PatientName}\n"
+            f"PatientID: {d.PatientID}\n"
+            f"PatientSex: {d.PatientSex}\n"
+            f"StudyID: {d.StudyID}\n"
+            f"Rows: {d.Rows}\n"
+            f"Columns: {d.Columns}\n"
+            f"SliceThickness: {d.SliceThickness}\n"
+            f"PixelSpacing: {d.PixelSpacing}\n"
+            f"WindowCenter: {d.WindowCenter}\n"
+            f"WindowWidth: {d.WindowWidth}\n"
+            f"RescaleIntercept: {d.RescaleIntercept}\n"
+            f"RescaleSlope: {d.RescaleSlope}\n"
         )
 
-    def __get_pixel_hu(self) -> np.ndarray:
+    def __getitem__(self, index: int):
         """
-        Convert the pixel values to Hounsfield Units (HU).
+        Get the pixel array of the DICOM file at the specified index.
+
+        Parameters
+        ----------
+        index (int)
+            Index of the DICOM file.
 
         Returns
         ----------
         np.ndarray
-        * 3D array of pixel values in HU.
+            Pixel array of the DICOM file.
         """
-        images: np.ndarray = np.stack([s.pixel_array for s in self.data])
-        images = images.astype(np.int16)
-        images[images == -2048] = 0
-
-        for slice_num in range(len(self.data)):
-            intercept = self.data[slice_num].RescaleIntercept
-            slope = self.data[slice_num].RescaleSlope
-            # Some images already have CT values (HU values), in which case the read values are Slope=1 and Intercept=0.
-            if slope != 1:
-                images[slice_num] = slope * images[slice_num].astype(np.float64).astype(
-                    np.int16
-                )
-            images[slice_num] += np.int16(intercept)
-
-        return images
-
-    def setDicomWinWidthWinCenter(self, winwidth: float = 350, wincenter: float = 60):
-        """
-        Set the window width and window center for the DICOM images.
-
-        Parameters
-        ----------
-        winwidth (float)
-        * Window width.
-        * Lung: 1500; Head: 80; Mediastinum: 400; Bone: 1500
-
-        wincenter (float)
-        * Window center.
-        * Lung: -400; Head: 40; Mediastinum: 60; Bone: 300
-        """
-
-        images: np.ndarray = self.__get_pixel_hu()
-
-        minval: float = (2 * wincenter - winwidth) / 2.0 + 0.5
-        maxval: float = (2 * wincenter + winwidth) / 2.0 + 0.5
-
-        for index in range(len(images)):
-            img_temp = images[index]
-            rows, cols = img_temp.shape
-            apply_windowing(img_temp, rows, cols, minval, maxval)
-            img_temp[img_temp < 0] = 0
-            img_temp[img_temp > 255] = 255
-            images[index] = img_temp
-
-        self.hu_images = images
-
-    def show(self, index: int, cmap: str = "o"):
-        """
-        Show the DICOM image at the specified index.
-
-        Parameters
-        ----------
-        index (int) :
-        * Index of the DICOM image.
-
-        cmap (str) :
-        * Color map to be used.
-        * "o" for original image, "h" for HU image, "oh" for both original and HU images side by side.
-        """
-
-        if cmap == "o":
-            fig, ax = plt.subplots()
-            image = self[index]
-            plt.imshow(image, "gray")
-
-        elif cmap == "h":
-            fig, ax = plt.subplots()
-            image = self.hu_images[index]
-            plt.imshow(image, "gray")
-
-        elif cmap == "oh":
-            fig, axes = plt.subplots(1, 2)
-            axes[0].imshow(self[index], "gray")
-            axes[1].imshow(self.hu_images[index], "gray")
-
-        else:
-            raise ValueError(
-                "Invalid cmap value. Expected 'o' for original image or 'h' for HU image."
-            )
-
-        fig.patch.set_facecolor("black")
-        plt.axis("off")
-        plt.show()
-        plt.close()
+        return self.data[index].pixel_array
